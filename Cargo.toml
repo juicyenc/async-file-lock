@@ -18,6 +18,8 @@ tokio = { version = "1.37", features = [
     "rt",
     "rt-multi-thread",
     "io-util",
+    "sync",
+    "time",
 ] }
 fs3 = "0.5.0"
 futures-lite = "1.11.3"
