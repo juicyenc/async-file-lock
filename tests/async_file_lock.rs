@@ -319,26 +319,54 @@ async fn lock_exclusive_shared() {
 }
 
 #[test(flavor = "multi_thread")]
-async fn drop_lock_exclusive() -> Result<()> {
-    let tmp_path = NamedTempFile::new()?.into_temp_path();
-    match fork() {
-        Ok(Fork::Parent(_)) => {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            let mut file = FileLock::open(&tmp_path).await?;
-            let instant = Instant::now();
-            file.lock_exclusive().await?;
-            assert!(instant.elapsed().as_millis() < 100);
-        }
-        Ok(Fork::Child) => {
-            let mut file = FileLock::open(&tmp_path).await?;
-            file.lock_exclusive().await?;
-            drop(file);
-            std::thread::sleep(std::time::Duration::from_millis(1000));
-            std::process::exit(0);
-        }
-        Err(_) => panic!("unable to fork"),
-    }
-    Ok(())
+async fn drop_lock_exclusive() {
+    let file = NamedTempFile::new().unwrap();
+
+    let tmp_path: PathBuf = file.path().into();
+    let tmp_path2 = tmp_path.clone();
+
+    // signal channels
+    let (locked_tx, locked_rx) = tokio::sync::oneshot::channel::<()>();
+    let (unlocked_tx, unlocked_rx) = tokio::sync::oneshot::channel::<()>();
+
+    // child thread
+    tokio::spawn(async move {
+        // wait for file locked by main thread
+        assert_matches!(locked_rx.await, Ok(()));
+
+        assert!(tmp_path.exists());
+        let mut file = FileLock::open(&tmp_path).await.unwrap();
+
+        // attemp to obtain a lock acquired should failed.
+        assert_matches!(file.try_lock_exclusive(), Err(_));
+
+        // wait for lock released from main thread
+        assert_matches!(unlocked_rx.await, Ok(()));
+
+        // attemp to obtain a lock should success.
+        assert_matches!(file.try_lock_exclusive(), Ok(()));
+    });
+
+    // main thread
+    {
+        let mut file = FileLock::open(&tmp_path2).await.unwrap();
+        assert!(tmp_path2.exists());
+
+        // obtain the lock
+        assert_matches!(file.lock_exclusive().await, Ok(_));
+
+        // signal child thread
+        assert_matches!(locked_tx.send(()), Ok(()));
+
+        // sleep
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+        // drop lock
+        drop(file);
+
+        // signal
+        assert_matches!(unlocked_tx.send(()), Ok(()));
+    };
 }
 
 #[test(flavor = "multi_thread")]
