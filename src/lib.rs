@@ -165,11 +165,11 @@ impl FileLock {
     ///
     /// ```no_run
     /// use tokio::fs::File;
-    /// use tokio::prelude::*;
+    /// use tokio::io::AsyncWriteExt;
     ///
     /// # async fn dox() -> std::io::Result<()> {
     /// let mut file = File::create("foo.txt").await?;
-    /// file.write_all(b"hello, world!").await?;
+    /// file.write(b"hello, world!").await?;
     /// file.sync_all().await?;
     /// # Ok(())
     /// # }
@@ -202,11 +202,11 @@ impl FileLock {
     ///
     /// ```no_run
     /// use tokio::fs::File;
-    /// use tokio::prelude::*;
+    /// use tokio::io::AsyncWriteExt;
     ///
     /// # async fn dox() -> std::io::Result<()> {
     /// let mut file = File::create("foo.txt").await?;
-    /// file.write_all(b"hello, world!").await?;
+    /// file.write(b"hello, world!").await?;
     /// file.sync_data().await?;
     /// # Ok(())
     /// # }
