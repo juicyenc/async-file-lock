@@ -13,7 +13,12 @@ include = ["**/*.rs", "Cargo.toml"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1.37", features = ["fs"] }
+tokio = { version = "1.37", features = [
+    "fs",
+    "rt",
+    "rt-multi-thread",
+    "io-util",
+] }
 fs3 = "0.5.0"
 futures-lite = "1.11.3"
 

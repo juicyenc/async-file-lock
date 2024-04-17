@@ -1,19 +1,19 @@
 #![deny(unused_must_use)]
 // #![cfg_attr(test, feature(test))]
 
-use std::task::{Context, Poll};
-use std::pin::Pin;
-use std::fmt::Formatter;
+use futures_lite::{ready, FutureExt};
 use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::future::Future;
-use std::io::{Error, Result, SeekFrom, Seek};
+use std::io::{Error, Result, Seek, SeekFrom};
+use std::mem::MaybeUninit;
+use std::path::Path;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncRead, AsyncSeek, AsyncWrite};
 use tokio::task::{spawn_blocking, JoinHandle};
-use futures_lite::{ready, FutureExt};
-use fs3::FileExt;
-use std::path::Path;
-use std::mem::MaybeUninit;
+use {fs3::FileExt, tokio::io::ReadBuf};
 
 /// Locks a file asynchronously.
 /// Auto locks a file if any read or write methods are called. If [Self::lock_exclusive]
@@ -40,7 +40,13 @@ impl FileLock {
     /// Opens a file in read and write mode that is unlocked.
     // This function will create a file if it does not exist, and will truncate it if it does.
     pub async fn create(path: impl AsRef<Path>) -> Result<FileLock> {
-        let file = OpenOptions::new().write(true).read(true).create(true).truncate(true).open(path).await?;
+        let file = OpenOptions::new()
+            .write(true)
+            .read(true)
+            .create(true)
+            .truncate(true)
+            .open(path)
+            .await?;
         Ok(FileLock::new_tokio(file).await)
     }
 
@@ -61,7 +67,7 @@ impl FileLock {
             result: None,
             locking_fut: None,
             unlocking_fut: None,
-            seek_fut: None
+            seek_fut: None,
         }
     }
 
@@ -76,7 +82,7 @@ impl FileLock {
             result: None,
             locking_fut: None,
             unlocking_fut: None,
-            seek_fut: None
+            seek_fut: None,
         }
     }
 
@@ -96,11 +102,14 @@ impl FileLock {
             panic!("File already locked.");
         }
         self.is_manually_locked = true;
-        self.unlocked_file.as_mut().unwrap().try_lock_exclusive().map(|_| {
-            self.locked_file = Some(File::from_std(self.unlocked_file.take().unwrap()));
-            self.state = State::Locked;
-
-        })
+        self.unlocked_file
+            .as_mut()
+            .unwrap()
+            .try_lock_exclusive()
+            .map(|_| {
+                self.locked_file = Some(File::from_std(self.unlocked_file.take().unwrap()));
+                self.state = State::Locked;
+            })
     }
 
     /// Locks the file for reading until [`Self::unlock`] is called.
@@ -119,11 +128,14 @@ impl FileLock {
             panic!("File already locked.");
         }
         self.is_manually_locked = true;
-        self.unlocked_file.as_mut().unwrap().try_lock_shared().map(|_| {
-            self.locked_file = Some(File::from_std(self.unlocked_file.take().unwrap()));
-            self.state = State::Locked;
-
-        })
+        self.unlocked_file
+            .as_mut()
+            .unwrap()
+            .try_lock_shared()
+            .map(|_| {
+                self.locked_file = Some(File::from_std(self.unlocked_file.take().unwrap()));
+                self.state = State::Locked;
+            })
     }
 
     /// Unlocks the file.
@@ -173,9 +185,7 @@ impl FileLock {
             return file.sync_all().await;
         }
         let file = self.unlocked_file.take().unwrap();
-        let (result, file) = spawn_blocking(|| {
-            (file.sync_all(), file)
-        }).await.unwrap();
+        let (result, file) = spawn_blocking(|| (file.sync_all(), file)).await.unwrap();
         self.unlocked_file = Some(file);
         result
     }
@@ -212,9 +222,7 @@ impl FileLock {
             return file.sync_data().await;
         }
         let file = self.unlocked_file.take().unwrap();
-        let (result, file) = spawn_blocking(|| {
-            (file.sync_data(), file)
-        }).await.unwrap();
+        let (result, file) = spawn_blocking(|| (file.sync_data(), file)).await.unwrap();
         self.unlocked_file = Some(file);
         result
     }
@@ -316,7 +324,7 @@ macro_rules! poll_loop {
                     SeekFrom::Current(0) => $self.state = State::Working,
                     _ => {
                         let mode = $self.mode;
-                        $self.as_mut().start_seek($cx, mode);
+                        $self.as_mut().start_seek(mode);
                         $self.state = State::Seeking;
                     }
                 },
@@ -324,7 +332,7 @@ macro_rules! poll_loop {
                     // println!("working");
                     $working
                     // println!("worked");
-                },
+                }
                 State::Locking => {
                     if let Err(e) = ready!($self.$lock($cx)) {
                         return Poll::Ready(Err(e));
@@ -403,17 +411,19 @@ impl AsyncWrite for FileLock {
     }
 }
 
-impl AsyncRead for FileLock {
+impl FileLock {
     unsafe fn prepare_uninitialized_buffer(&self, _: &mut [MaybeUninit<u8>]) -> bool {
         false
     }
+}
 
+impl AsyncRead for FileLock {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<Result<usize>> {
-        poll_loop! {self, cx, |x| x as usize, poll_shared_lock,
+        buf: &mut ReadBuf,
+    ) -> Poll<Result<()>> {
+        poll_loop! {self, cx, /* |x| x as usize */|_| (), poll_shared_lock,
             State::Working => {
                 let result = ready!(Pin::new(self.locked_file.as_mut().unwrap())
                         .as_mut()
@@ -423,7 +433,7 @@ impl AsyncRead for FileLock {
                     return Poll::Ready(result);
                 } else {
                     self.state = State::Unlocking;
-                    self.result = Some(result.map(|x| x as u64));
+                    self.result = Some(result.map(|x| 0u64/* x as u64 */));
                 }
             }
         };
@@ -431,28 +441,21 @@ impl AsyncRead for FileLock {
 }
 
 impl AsyncSeek for FileLock {
-    fn start_seek(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        position: SeekFrom,
-    ) -> Poll<Result<()>> {
+    fn start_seek(mut self: Pin<&mut Self>, position: SeekFrom) -> Result<()> {
         if let Some(ref mut locked_file) = self.locked_file {
-            return Pin::new(locked_file)
-                .as_mut()
-                .start_seek(cx, position);
+            return Pin::new(locked_file).as_mut().start_seek(position);
         }
-        let mut file = self.unlocked_file.take().expect("Cannot seek while in the process of locking/unlocking/seeking");
-        self.seek_fut = Some(spawn_blocking(move || {
-            (file.seek(position), file)
-        }));
-        return Poll::Ready(Ok(()));
+        let mut file = self
+            .unlocked_file
+            .take()
+            .expect("Cannot seek while in the process of locking/unlocking/seeking");
+        self.seek_fut = Some(spawn_blocking(move || (file.seek(position), file)));
+        return Ok(());
     }
 
     fn poll_complete(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<u64>> {
         if let Some(ref mut locked_file) = self.locked_file {
-            return Pin::new(locked_file)
-                    .as_mut()
-                    .poll_complete(cx)
+            return Pin::new(locked_file).as_mut().poll_complete(cx);
         }
         let (result, file) = ready!(Pin::new(self.seek_fut.as_mut().unwrap()).poll(cx)).unwrap();
         self.seek_fut = None;
@@ -547,4 +550,3 @@ impl<'a> Future for UnlockFuture<'a> {
         self.file_lock.poll_unlock(cx)
     }
 }
-

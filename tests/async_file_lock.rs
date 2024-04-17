@@ -1,18 +1,18 @@
 #![deny(unused_must_use)]
 
 use async_file_lock::FileLock;
-use tokio::test;
-use std::io::Result;
-use tempfile::NamedTempFile;
-use tokio::io::{AsyncWriteExt, SeekFrom, AsyncSeekExt, AsyncReadExt};
-use std::time::Instant;
 use fork::{fork, Fork};
+use std::io::Result;
+use std::time::Instant;
+use tempfile::NamedTempFile;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
+use tokio::test;
 
 fn file() -> FileLock {
     FileLock::new_std(tempfile::tempfile().unwrap())
 }
 
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 async fn normal1() -> Result<()> {
     let tmp_path = NamedTempFile::new()?.into_temp_path();
     // let tmp_path = PathBuf::from("/tmp/a");
@@ -39,13 +39,13 @@ async fn normal1() -> Result<()> {
             file.write(b"b").await?;
             println!("done");
             std::process::exit(0);
-        },
+        }
         Err(_) => panic!("unable to fork"),
     }
     Ok(())
 }
 
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 async fn append_mode() -> Result<()> {
     let tmp_path = NamedTempFile::new()?.into_temp_path();
     match fork() {
@@ -72,13 +72,13 @@ async fn append_mode() -> Result<()> {
             file.flush().await?;
             // println!("done");
             std::process::exit(0);
-        },
+        }
         Err(_) => panic!("unable to fork"),
     }
     Ok(())
 }
 
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 async fn lock_shared() -> Result<()> {
     let tmp_path = NamedTempFile::new()?.into_temp_path();
     match fork() {
@@ -94,14 +94,13 @@ async fn lock_shared() -> Result<()> {
             file.lock_shared().await?;
             std::thread::sleep(std::time::Duration::from_millis(1000));
             std::process::exit(0);
-        },
+        }
         Err(_) => panic!("unable to fork"),
     }
     Ok(())
 }
 
-
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 async fn lock_exclusive() -> Result<()> {
     let tmp_path = NamedTempFile::new()?.into_temp_path();
     match fork() {
@@ -119,13 +118,13 @@ async fn lock_exclusive() -> Result<()> {
             println!("child {}", tmp_path.exists());
             std::thread::sleep(std::time::Duration::from_millis(1000));
             std::process::exit(0);
-        },
+        }
         Err(_) => panic!("unable to fork"),
     }
     Ok(())
 }
 
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 async fn lock_exclusive_shared() -> Result<()> {
     let tmp_path = NamedTempFile::new()?.into_temp_path();
     match fork() {
@@ -141,13 +140,13 @@ async fn lock_exclusive_shared() -> Result<()> {
             file.lock_shared().await?;
             std::thread::sleep(std::time::Duration::from_millis(1000));
             std::process::exit(0);
-        },
+        }
         Err(_) => panic!("unable to fork"),
     }
     Ok(())
 }
 
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 async fn drop_lock_exclusive() -> Result<()> {
     let tmp_path = NamedTempFile::new()?.into_temp_path();
     match fork() {
@@ -164,13 +163,13 @@ async fn drop_lock_exclusive() -> Result<()> {
             drop(file);
             std::thread::sleep(std::time::Duration::from_millis(1000));
             std::process::exit(0);
-        },
+        }
         Err(_) => panic!("unable to fork"),
     }
     Ok(())
 }
 
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 #[should_panic]
 async fn exclusive_locking_locked_file_panics() {
     let mut file = file();
@@ -178,7 +177,7 @@ async fn exclusive_locking_locked_file_panics() {
     file.lock_exclusive().await.unwrap();
 }
 
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 #[should_panic]
 async fn shared_locking_locked_file_panics() {
     let mut file = file();
@@ -186,7 +185,7 @@ async fn shared_locking_locked_file_panics() {
     file.lock_shared().await.unwrap();
 }
 
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 #[should_panic]
 async fn shared_locking_exclusive_file_panics() {
     let mut file = file();
@@ -194,7 +193,7 @@ async fn shared_locking_exclusive_file_panics() {
     file.lock_shared().await.unwrap();
 }
 
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 #[should_panic]
 async fn exclusive_locking_shared_file_panics() {
     let mut file = file();
@@ -202,14 +201,14 @@ async fn exclusive_locking_shared_file_panics() {
     file.lock_exclusive().await.unwrap();
 }
 
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 #[should_panic]
 async fn unlocking_file_panics() {
     let mut file = file();
     file.unlock().await;
 }
 
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 #[should_panic]
 async fn unlocking_unlocked_file_panics() {
     let mut file = file();
@@ -218,7 +217,7 @@ async fn unlocking_unlocked_file_panics() {
     file.unlock().await;
 }
 
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 async fn file_stays_locked() {
     let mut file = file();
     file.lock_exclusive().await.unwrap();
@@ -226,7 +225,7 @@ async fn file_stays_locked() {
     file.unlock().await;
 }
 
-#[test(threaded_scheduler)]
+#[test(flavor = "multi_thread")]
 #[should_panic]
 async fn file_auto_unlocks() {
     let mut file = file();
