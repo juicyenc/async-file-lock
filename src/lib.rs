@@ -6,7 +6,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::future::Future;
 use std::io::{Error, Result, Seek, SeekFrom};
-use std::mem::MaybeUninit;
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
