@@ -411,11 +411,11 @@ impl AsyncWrite for FileLock {
     }
 }
 
-impl FileLock {
-    unsafe fn prepare_uninitialized_buffer(&self, _: &mut [MaybeUninit<u8>]) -> bool {
-        false
-    }
-}
+// impl FileLock {
+//     unsafe fn prepare_uninitialized_buffer(&self, _: &mut [MaybeUninit<u8>]) -> bool {
+//         false
+//     }
+// }
 
 impl AsyncRead for FileLock {
     fn poll_read(
@@ -433,7 +433,7 @@ impl AsyncRead for FileLock {
                     return Poll::Ready(result);
                 } else {
                     self.state = State::Unlocking;
-                    self.result = Some(result.map(|x| 0u64/* x as u64 */));
+                    self.result = Some(result.map(|_| 0u64/* x as u64 */));
                 }
             }
         };
