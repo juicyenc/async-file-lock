@@ -456,6 +456,10 @@ impl AsyncSeek for FileLock {
         if let Some(ref mut locked_file) = self.locked_file {
             return Pin::new(locked_file).as_mut().poll_complete(cx);
         }
+        // NOTE: calling this without calling start_seek might return the same result
+        if let None = self.seek_fut {
+            return Poll::Ready(Ok(0)); // but we return 0
+        }
         let (result, file) = ready!(Pin::new(self.seek_fut.as_mut().unwrap()).poll(cx)).unwrap();
         self.seek_fut = None;
         self.unlocked_file = Some(file);
